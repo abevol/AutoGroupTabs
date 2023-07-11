@@ -16,11 +16,59 @@ chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab)
     }
 });
 
+// Listen for the installation event
+chrome.runtime.onInstalled.addListener(function(details) {
+    // Check if the extension is being installed (as opposed to updated, etc.)
+    if (details.reason === 'install') {
+        // Set the default rules
+        chrome.storage.sync.set({
+            rules: ['*.bilibili.com', '*.openai.com']
+        });
+    }
+});
+
+chrome.storage.onChanged.addListener(function(changes, namespace) {
+    for (var key in changes) {
+        if (key === 'rules') {
+            loadRules();
+        }
+    }
+});
+
 const colors = ["grey", "blue", "yellow", "red", "green", "pink", "purple", "cyan"]
+
+let rules = [];
+
+// Load the rules from storage
+function loadRules() {
+    chrome.storage.sync.get('rules', function(data) {
+        if (data.rules) {
+            rules = data.rules;
+        }
+    });
+}
+
+loadRules();
 
 function genGroupName(url)
 {
     url = new URL(url);
+    let hostname = url.hostname;
+
+    // Check if the hostname matches any of the user rules
+    for (var i = 0; i < rules.length; i++) {
+        var rule = rules[i];
+        if (rule.startsWith('*.')) {
+            // Remove the '*.' from the rule and check if the hostname ends with it
+            var ruleHost = rule.slice(2);
+            if (hostname.endsWith(ruleHost)) {
+                return rule;
+            }
+        } else if (hostname === rule) {
+            return rule;
+        }
+    }
+
     if (url.protocol != "http:" && url.protocol != "https:")
     {
         return url.protocol.substr(0, url.protocol.length - 1);

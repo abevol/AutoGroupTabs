@@ -15,11 +15,12 @@
     },
     "action": {
         "default_title": "__MSG_appName__",
+        "default_popup": "index.html",
         "default_icon": "icons/main.png"
     },
     "offline_enabled": true,
     "permissions":[
-        "tabGroups","tabs"
+        "tabGroups","tabs","storage"
     ],
     "default_locale":"zh_CN"
   }
