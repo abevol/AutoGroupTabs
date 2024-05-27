@@ -1,3 +1,5 @@
+importScripts('psl.min.js');
+
 chrome.runtime.onInstalled.addListener(function(details)
 {
     details && "install" == details.reason && groupAllTabs();
@@ -74,7 +76,7 @@ function genGroupName(url)
         return url.protocol.substr(0, url.protocol.length - 1);
     }
     let hostName = url.hostname;
-    let groupName = hostName.startsWith("www.") ? hostName.substr(4) : hostName;
+    let groupName = psl.parse(hostName).domain;
     return groupName;
 }
 
