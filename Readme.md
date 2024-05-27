@@ -22,6 +22,10 @@
 
 ## 更新日志
 
+### 2024.05.27
+
+引入域名解析包 [Public Suffix List](https://github.com/lupomontero/psl)，分组依据一级域名
+
 ### 2022.08.26
 
 初始版本
