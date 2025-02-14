@@ -1,175 +1,99 @@
-chrome.runtime.onInstalled.addListener(function(details)
-{
-    details && "install" == details.reason && groupAllTabs();
-});
-
-chrome.tabs.onCreated.addListener(function(tab)
-{
-    groupTab(tab);
-});
-
-chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab)
-{
-    if (changeInfo.url != undefined)
-    {
-        groupTab(tab);
-    }
-});
-
-// Listen for the installation event
 chrome.runtime.onInstalled.addListener(function(details) {
-    // Check if the extension is being installed (as opposed to updated, etc.)
     if (details.reason === 'install') {
-        // Set the default rules
         chrome.storage.sync.set({
             rules: ['*.bilibili.com', '*.openai.com']
         });
+        groupAllTabs();
     }
 });
 
-chrome.storage.onChanged.addListener(function(changes, namespace) {
-    for (var key in changes) {
-        if (key === 'rules') {
-            loadRules();
-        }
-    }
+chrome.tabs.onCreated.addListener(groupTab);
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.url) groupTab(tab);
 });
 
-const colors = ["grey", "blue", "yellow", "red", "green", "pink", "purple", "cyan"]
+chrome.storage.onChanged.addListener((changes) => {
+    if (changes.rules) loadRules();
+});
 
 let rules = [];
-
-// Load the rules from storage
-function loadRules() {
-    chrome.storage.sync.get('rules', function(data) {
-        if (data.rules) {
-            rules = data.rules;
-        }
-    });
-}
-
 loadRules();
 
-function genGroupName(url)
-{
-    url = new URL(url);
-    let hostname = url.hostname;
+function loadRules() {
+    chrome.storage.sync.get('rules', (data) => {
+        rules = data.rules || [];
+    });
+}
 
-    // Check if the hostname matches any of the user rules
-    for (var i = 0; i < rules.length; i++) {
-        var rule = rules[i];
+function genGroupName(url) {
+    const { hostname } = new URL(url);
+    
+    // Check user-defined rules
+    for (const rule of rules) {
         if (rule.startsWith('*.')) {
-            // Remove the '*.' from the rule and check if the hostname ends with it
-            var ruleHost = rule.slice(2);
-            if (hostname.endsWith(ruleHost)) {
-                return rule;
+            const domain = rule.slice(2);
+            if (hostname === domain || hostname.endsWith(`.${domain}`)) {
+                return formatGroupName(domain);
             }
         } else if (hostname === rule) {
-            return rule;
+            return formatGroupName(rule);
         }
     }
 
-    if (url.protocol != "http:" && url.protocol != "https:")
-    {
-        return url.protocol.substr(0, url.protocol.length - 1);
+    // Extract main domain (e.g., 'docs.google.com' → 'google.com')
+    const parts = hostname.split('.');
+    if (parts.length > 2) {
+        // Remove subdomains and 'www' prefix
+        return formatGroupName(parts.slice(-2).join('.'));
     }
-    let hostName = url.hostname;
-    let groupName = hostName.startsWith("www.") ? hostName.substr(4) : hostName;
-    return groupName;
+    return formatGroupName(hostname.replace(/^www\./, ''));
 }
 
-let tabIdx = 0;
-let allTabs = [];
-
-function onGroupTabComplete()
-{
-    tabIdx++;
-    if (tabIdx < allTabs.length)
-    {
-        let tab = allTabs[tabIdx];
-        groupTab(tab, onGroupTabComplete);
-    }
+function formatGroupName(domain) {
+    // Remove .com and capitalize the first letter
+    const name = domain.replace(/\.com$/, '');
+    return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
-function groupAllTabs()
-{
-    console.debug("groupAllTabs");
-    chrome.tabs.query(
-    {
-        currentWindow: true
-    }, function(tabs)
-    {
-        tabIdx = 0;
-        allTabs = tabs;
-        groupTab(allTabs[tabIdx], onGroupTabComplete);
+function getGroupColor(groupName) {
+    let hash = 0;
+    for (let i = 0; i < groupName.length; i++) {
+        hash = (hash << 5) - hash + groupName.charCodeAt(i);
+        hash |= 0;
+    }
+    const colors = ["grey", "blue", "yellow", "red", "green", "pink", "purple", "cyan"];
+    return colors[Math.abs(hash) % colors.length];
+}
+
+async function groupTab(tab, complete) {
+    if (!tab.url || tab.pinned) return complete?.();
+
+    const currentWindow = await chrome.windows.getCurrent();
+    const groups = await chrome.tabGroups.query({ windowId: currentWindow.id });
+    const groupName = genGroupName(tab.url);
+
+    // Skip if already in the correct group
+    if (tab.groupId !== -1) {
+        const currentGroup = groups.find(g => g.id === tab.groupId);
+        if (currentGroup?.title === groupName) return complete?.();
+    }
+
+    // Find existing group or create new
+    const targetGroup = groups.find(g => g.title === groupName);
+    if (targetGroup) {
+        await chrome.tabs.group({ groupId: targetGroup.id, tabIds: tab.id });
+    } else {
+        const newGroupId = await chrome.tabs.group({ tabIds: tab.id });
+        await chrome.tabGroups.update(newGroupId, {
+            title: groupName,
+            color: getGroupColor(groupName)
+        });
+    }
+    complete?.();
+}
+
+function groupAllTabs() {
+    chrome.tabs.query({ currentWindow: true }, (tabs) => {
+        tabs.forEach((tab) => groupTab(tab));
     });
-}
-
-function groupTab(tab, complete)
-{
-    if (tab.url == "" || tab.pinned)
-    {
-        complete && complete();
-        return;
-    }
-
-    chrome.windows.getCurrent(function(currentWindow)
-    {
-        chrome.tabGroups.query(
-        {
-            windowId: currentWindow.id
-        }, function(groups)
-        {
-            groupTabIntl(tab, groups, currentWindow, complete);
-        })
-    });
-}
-
-function groupTabIntl(tab, groups, currentWindow, complete)
-{
-    try
-    {
-        let groupName = genGroupName(tab.url);
-        const existedGroup = groups.find(a => a.title == groupName);
-        if (existedGroup == undefined)
-        {
-            chrome.tabs.group(
-            {
-                createProperties:
-                {
-                    windowId: currentWindow.id,
-                },
-                tabIds: tab.id
-            }, function(groupId)
-            {
-                console.debug("add group", groupName);
-                chrome.tabGroups.update(groupId,
-                {
-                    color: colors[parseInt(Math.random() * 10)],
-                    title: groupName,
-                }, function(group)
-                {
-                    console.debug("group added", group.title);
-                    complete && complete();
-                });
-            })
-        }
-        else
-        {
-            console.debug("update group", groupName);
-            chrome.tabs.group(
-            {
-                groupId: existedGroup.id,
-                tabIds: tab.id
-            }, function(groupId)
-            {
-                console.debug("group updated", groupName);
-                complete && complete();
-            })
-        }
-    }
-    catch (e)
-    {
-        console.error(e)
-    }
 }
