@@ -28,7 +28,7 @@ function loadRules() {
 function genGroupName(url) {
     const { hostname } = new URL(url);
     
-    // Check user-defined rules
+    // Check user-defined rules first
     for (const rule of rules) {
         if (rule.startsWith('*.')) {
             const domain = rule.slice(2);
@@ -40,19 +40,38 @@ function genGroupName(url) {
         }
     }
 
-    // Extract main domain (e.g., 'docs.google.com' → 'google.com')
-    const parts = hostname.split('.');
-    if (parts.length > 2) {
-        // Remove subdomains and 'www' prefix
-        return formatGroupName(parts.slice(-2).join('.'));
+    let parts = hostname.split('.');
+    
+    // Remove 'www' prefix
+    if (parts[0] === 'www') parts.shift();
+    
+    // Handle country-code TLDs (e.g., .co.uk, .com.br)
+    if (parts.length >= 3 && parts[parts.length -1].length === 2) {
+        const secondLevel = parts[parts.length -2];
+        // Known country-code second-level domains
+        if (['co', 'com', 'org', 'net', 'edu', 'gov', 'mil'].includes(secondLevel)) {
+            parts = parts.slice(0, -2); // Remove TLD parts
+        } else {
+            parts = parts.slice(0, -1); // Remove country-code TLD
+        }
     }
-    return formatGroupName(hostname.replace(/^www\./, ''));
+    
+    // Remove common TLDs
+    const COMMON_TLDS = new Set(['com', 'net', 'org', 'io', 'edu', 'gov', 'mil', 'biz', 
+                                'info', 'mobi', 'name', 'aero', 'asia', 'jobs', 'museum', 
+                                'tel', 'travel']);
+    while (parts.length > 0 && COMMON_TLDS.has(parts[parts.length -1])) {
+        parts.pop();
+    }
+    
+    // Get the main domain part
+    const mainDomain = parts.length > 0 ? parts[parts.length -1] : hostname;
+    
+    return formatGroupName(mainDomain);
 }
 
 function formatGroupName(domain) {
-    // Remove .com and capitalize the first letter
-    const name = domain.replace(/\.com$/, '');
-    return name.charAt(0).toUpperCase() + name.slice(1);
+    return domain.charAt(0).toUpperCase() + domain.slice(1);
 }
 
 function getGroupColor(groupName) {
